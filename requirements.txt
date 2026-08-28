@@ -1,2 +1,15 @@
 numpy
 pydantic>=2
+chromadb>=0.5
+rank-bm25>=0.2
+
+# embedding backends (install the ones you use)
+voyageai>=0.3
+sentence-transformers>=3
+openai>=1.40
+
+# generation backends (install the ones you use)
+anthropic>=0.40
+
+pytest>=8
+python-dotenv>=1
