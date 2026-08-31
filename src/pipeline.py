@@ -1,4 +1,5 @@
 import logging
+import os
 import time
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional
@@ -57,6 +58,17 @@ class RAGPipeline:
         # accumulating stale duplicates in the BM25 corpus.
         self._chunks_by_parent: Dict[str, List[Document]] = {}
 
+        # BM25 has no native persistence, so we save/load its corpus as JSON
+        # next to Chroma's own on-disk data - same on/off switch
+        # (CHROMA_PERSIST_DIR unset => ephemeral, both in-memory only).
+        self._bm25_persist_path: Optional[str] = None
+        if self.bm25_index is not None and settings.vector_store.persist_directory:
+            self._bm25_persist_path = os.path.join(settings.vector_store.persist_directory, "bm25_corpus.json")
+            loaded_chunks = self.bm25_index.load(self._bm25_persist_path)
+            for chunk in loaded_chunks:
+                parent_id = chunk.metadata.get("parent_id", chunk.id)
+                self._chunks_by_parent.setdefault(parent_id, []).append(chunk)
+
     def ingest(self, raw_records: List[dict]) -> List[Document]:
         """Normalize raw records, chunk them, embed the chunks, and index them.
 
@@ -83,8 +95,7 @@ class RAGPipeline:
             for doc in documents:
                 self._chunks_by_parent[doc.id] = [c for c in chunks if c.metadata.get("parent_id") == doc.id]
 
-        if self.bm25_index is not None:
-            self.bm25_index.build(self._all_chunks())
+        self._rebuild_bm25()
 
         elapsed_ms = (time.monotonic() - started) * 1000
         logger.info(
@@ -103,12 +114,18 @@ class RAGPipeline:
             return
         self.vector_store.delete_by_parent_id(document_id)
         del self._chunks_by_parent[document_id]
-        if self.bm25_index is not None:
-            self.bm25_index.build(self._all_chunks())
+        self._rebuild_bm25()
         logger.info("delete(%s): removed from index", document_id)
 
     def _all_chunks(self) -> List[Document]:
         return [chunk for chunks in self._chunks_by_parent.values() for chunk in chunks]
+
+    def _rebuild_bm25(self) -> None:
+        if self.bm25_index is None:
+            return
+        self.bm25_index.build(self._all_chunks())
+        if self._bm25_persist_path:
+            self.bm25_index.save(self._bm25_persist_path)
 
     def query(self, question: str, top_k: Optional[int] = None) -> RAGAnswer:
         top_k = top_k or self.settings.retrieval.top_k

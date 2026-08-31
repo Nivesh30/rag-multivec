@@ -53,9 +53,14 @@ production-grade. This is the prioritized list of what's missing.
 - [ ] **Streaming generation.** `AnthropicGenerator`/`OpenAIGenerator` use
       non-streaming calls; fine for short answers, but there's no path to
       stream tokens back to a caller (e.g. a future API/UI layer).
-- [ ] **Persistent BM25.** `BM25Index` is pure in-memory and rebuilt from
-      scratch on process restart — pair it with the same persistence model
-      Chroma already has (`CHROMA_PERSIST_DIR`).
+- [x] **Persistent BM25.** `BM25Index.save()`/`load()` serialize the
+      document corpus as JSON (rank_bm25 has no native serialization, so
+      the index is cheaply rebuilt from the saved corpus on load) to
+      `<CHROMA_PERSIST_DIR>/bm25_corpus.json` — same on/off switch as
+      Chroma's own persistence (unset `CHROMA_PERSIST_DIR` => ephemeral,
+      in-memory only for both). `RAGPipeline` loads it on startup
+      (repopulating `_chunks_by_parent` so dedup-on-reingest still works
+      across a restart) and saves after every `ingest()`/`delete()`.
 - [x] **Structured logging & basic observability.** `src/logging_config.py`
       (`configure_logging()`, opt-in - library code never installs
       handlers itself) plus `logging.getLogger("rag_multivec.*")` calls in
