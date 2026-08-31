@@ -83,9 +83,18 @@ production-grade. This is the prioritized list of what's missing.
       failure partway through raises (via the typed `EmbeddingError` from
       the P1 error-handling work) before anything from that `ingest()`
       call is added to the vector store.
-- [ ] **A real document loader layer.** `src/ingestion/` currently only
-      has the chunker; add loaders for common formats (PDF, HTML, Markdown,
-      CSV) feeding into `PlainTextNormalizer`/custom `Normalizer`s.
+- [x] **A real document loader layer.** `src/ingestion/loaders.py` adds
+      `load_text_file`/`load_markdown_file`/`load_html_file` (stdlib
+      `html.parser`-based tag stripping, no BeautifulSoup dependency),
+      `load_pdf_file` (via `pypdf`), and `load_csv_file` (one record per
+      row, any non-text column carried through as metadata). Each returns
+      plain dict(s) already shaped for `RAGPipeline.ingest()` -> normalized
+      by `PlainTextNormalizer` same as any other raw record, so no pipeline
+      changes were needed. `load_directory()` walks a directory and loads
+      every file with a registered extension (.txt/.md/.html/.pdf); CSVs
+      are loaded individually via `load_csv_file` since they need a
+      `text_column` and produce multiple records per file. See
+      `examples/ingest_directory.py`.
 - [ ] **HTTP API.** Wrap `RAGPipeline` in a small FastAPI (or similar)
       service with `/ingest` and `/query` endpoints, so it's usable outside
       a Python script.

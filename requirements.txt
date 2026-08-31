@@ -11,5 +11,8 @@ openai>=1.40
 # generation backends (install the ones you use)
 anthropic>=0.40
 
+# document loaders (install if you use load_pdf_file / load_directory with PDFs)
+pypdf>=4
+
 pytest>=8
 python-dotenv>=1
