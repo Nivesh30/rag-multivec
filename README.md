@@ -13,6 +13,7 @@ RAG system supporting multiple vectorization strategies with a normalization mid
 - `src/logging_config.py` — opt-in `configure_logging()` for ingest/retrieve/query counts and latency
 - `src/config/` — environment-driven settings for every stage
 - `src/pipeline.py` — wires it all together: `ingest()`, `delete()`, and `query()`
+- `src/api.py` — optional FastAPI HTTP service around the pipeline (`/ingest`, `/query`, `/query/stream`, `/documents/{id}`, `/health`)
 - `tests/` — unit tests (chunker, hybrid fusion, BM25, retrieval eval, full pipeline with fakes)
 - `examples/quickstart.py` — minimal end-to-end script
 - `examples/eval_retrieval.py` — minimal retrieval-quality eval script
@@ -74,6 +75,22 @@ pipeline.ingest(load_csv_file("./faq.csv", text_column="answer", id_column="id")
 ```
 
 Or run the bundled examples: `python -m examples.quickstart`, `python -m examples.eval_retrieval`, `python -m examples.streaming_query`, and `python -m examples.ingest_directory <dir>`.
+
+### HTTP API
+
+```bash
+uvicorn src.api:app --reload
+```
+
+| Endpoint | Method | Body | Notes |
+|---|---|---|---|
+| `/ingest` | POST | `{"records": [{"id": ..., "text": ...}, ...]}` | Same raw-record shape as `pipeline.ingest()` |
+| `/query` | POST | `{"question": "...", "top_k": 5}` | `top_k` optional |
+| `/query/stream` | POST | same as `/query` | Streams the answer as chunked `text/plain` |
+| `/documents/{id}` | DELETE | — | |
+| `/health` | GET | — | |
+
+A `RAGError` (embedding/generation failure surviving retries) returns HTTP 502; a malformed ingest record returns 400. `create_app(pipeline=...)` lets you inject a pipeline (e.g. in tests) instead of building the default one from environment settings.
 
 The Anthropic/OpenAI SDKs already retry transient (429/5xx/connection) failures internally — tune how many via `GENERATION_MAX_RETRIES`/`VECTORIZER_MAX_RETRIES`. A failure that survives those retries raises `src.errors.GenerationError`/`EmbeddingError` rather than a raw SDK exception. Call `src.logging_config.configure_logging()` once at startup (as the examples do) to see per-call counts and latency; control verbosity with `LOG_LEVEL`. Large ingests are embedded in batches of `VECTORIZER_BATCH_SIZE` (default 100) rather than one request, to stay under provider request-size limits.
 

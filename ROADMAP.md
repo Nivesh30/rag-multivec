@@ -95,9 +95,15 @@ production-grade. This is the prioritized list of what's missing.
       are loaded individually via `load_csv_file` since they need a
       `text_column` and produce multiple records per file. See
       `examples/ingest_directory.py`.
-- [ ] **HTTP API.** Wrap `RAGPipeline` in a small FastAPI (or similar)
-      service with `/ingest` and `/query` endpoints, so it's usable outside
-      a Python script.
+- [x] **HTTP API.** `src/api.py` wraps `RAGPipeline` in a small FastAPI
+      service: `POST /ingest`, `POST /query`, `POST /query/stream`
+      (chunked `text/plain`, backed by `StreamingRAGAnswer`), `DELETE
+      /documents/{id}`, and `GET /health`. `create_app(pipeline=...)`
+      takes an injected pipeline (for tests) or builds the default one
+      from environment settings lazily at startup - importing the module
+      never requires API keys. `RAGError` (from the P1 error-handling
+      work) maps to a 502; a bad ingest record (missing `id`) maps to a
+      400. Run with `uvicorn src.api:app`.
 - [ ] **Auth / multi-tenancy.** If this ever serves more than one user or
       dataset, collections/namespacing per tenant and basic API auth.
 - [ ] **Swap vector store without code changes.** `VectorStoreConfig.backend`
