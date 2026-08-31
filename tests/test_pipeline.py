@@ -118,6 +118,20 @@ def test_pipeline_delete_removes_document(tmp_path):
     assert "doc-fox" not in pipeline._chunks_by_parent
 
 
+def test_pipeline_logs_ingest_and_query(tmp_path, caplog):
+    settings = _settings(tmp_path, use_hybrid=True)
+    pipeline = RAGPipeline(settings, vectorizer=FakeVectorizer(), generator=FakeGenerator())
+
+    with caplog.at_level("INFO", logger="rag_multivec"):
+        pipeline.ingest([{"id": "doc-fox", "text": "The quick fox uses vector search."}])
+        pipeline.query("fox", top_k=1)
+
+    messages = [r.message for r in caplog.records]
+    assert any("ingest(" in m for m in messages)
+    assert any("retrieve(" in m for m in messages)
+    assert any("query() ->" in m for m in messages)
+
+
 def test_pipeline_query_extracts_citations(tmp_path):
     class CitingGenerator(BaseGenerator):
         def generate(self, question, context):

@@ -21,6 +21,7 @@ def build_generator(config: "GenerationConfig") -> BaseGenerator:
             api_key=config.anthropic_api_key,
             model=config.model or DEFAULT_MODEL,
             max_tokens=config.max_tokens,
+            max_retries=config.max_retries,
         )
 
     if provider == "openai":
@@ -30,6 +31,7 @@ def build_generator(config: "GenerationConfig") -> BaseGenerator:
             api_key=config.openai_api_key,
             model=config.model or DEFAULT_MODEL,
             max_tokens=config.max_tokens,
+            max_retries=config.max_retries,
         )
 
     raise ValueError(f"Unknown generation provider '{config.provider}'. Choose from {PROVIDERS}.")

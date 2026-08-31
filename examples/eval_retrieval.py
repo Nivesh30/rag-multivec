@@ -7,12 +7,14 @@ from dotenv import load_dotenv
 
 from src.config.settings import load_settings
 from src.eval.evaluate import EvalCase, evaluate_retrieval
+from src.logging_config import configure_logging
 from src.pipeline import build_pipeline
 
 load_dotenv()
 
 
 def main():
+    configure_logging()
     pipeline = build_pipeline(load_settings())
 
     pipeline.ingest(

@@ -13,6 +13,7 @@ class VectorizerConfig:
     model: Optional[str] = field(default_factory=lambda: _env("VECTORIZER_MODEL"))
     voyage_api_key: Optional[str] = field(default_factory=lambda: _env("VOYAGE_API_KEY"))
     openai_api_key: Optional[str] = field(default_factory=lambda: _env("OPENAI_API_KEY"))
+    max_retries: int = field(default_factory=lambda: int(_env("VECTORIZER_MAX_RETRIES", "2")))
 
 
 @dataclass
@@ -28,7 +29,8 @@ class GenerationConfig:
     model: Optional[str] = field(default_factory=lambda: _env("GENERATION_MODEL"))
     anthropic_api_key: Optional[str] = field(default_factory=lambda: _env("ANTHROPIC_API_KEY"))
     openai_api_key: Optional[str] = field(default_factory=lambda: _env("OPENAI_API_KEY"))
-    max_tokens: int = field(default_factory=lambda: int(_env("GENERATION_MAX_TOKENS", "1024")))
+    max_tokens: int = field(default_factory=lambda: int(_env("GENERATION_MAX_TOKENS", "2048")))
+    max_retries: int = field(default_factory=lambda: int(_env("GENERATION_MAX_RETRIES", "2")))
 
 
 @dataclass

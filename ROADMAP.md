@@ -37,19 +37,31 @@ production-grade. This is the prioritized list of what's missing.
 - [x] **Dedup on ingest.** Covered by the same change above —
       `_chunks_by_parent` tracks chunks per source document id so a
       re-ingest replaces rather than duplicates them.
-- [ ] **Error handling around LLM/embedding calls.** No retry/backoff or
-      typed-exception handling around the Anthropic/OpenAI/Voyage calls in
-      `src/vectorizers/` and `src/generation/` — a transient 429/5xx today
-      just raises out of `ingest()`/`query()`.
+- [x] **Error handling around LLM/embedding calls.** The Anthropic/OpenAI
+      SDKs already retry connection errors, 429, and 5xx with exponential
+      backoff internally (now configurable via `GENERATION_MAX_RETRIES` /
+      `VECTORIZER_MAX_RETRIES`, passed to the client's own `max_retries`).
+      What was missing is handled now: `src/errors.py` defines
+      `EmbeddingError`/`GenerationError`, and each provider call in
+      `src/vectorizers/` and `src/generation/` is wrapped in a
+      most-specific-first typed exception chain (auth / rate limit /
+      connection / status) that raises one of these instead of a raw SDK
+      exception leaking out of `ingest()`/`query()`. Voyage's SDK doesn't
+      expose a documented typed hierarchy, so it uses a duck-typed
+      transient check (`is_transient_by_signature`) for logging purposes
+      and always raises `EmbeddingError`.
 - [ ] **Streaming generation.** `AnthropicGenerator`/`OpenAIGenerator` use
       non-streaming calls; fine for short answers, but there's no path to
       stream tokens back to a caller (e.g. a future API/UI layer).
 - [ ] **Persistent BM25.** `BM25Index` is pure in-memory and rebuilt from
       scratch on process restart — pair it with the same persistence model
       Chroma already has (`CHROMA_PERSIST_DIR`).
-- [ ] **Structured logging & basic observability.** No logging at all
-      today — at minimum log ingest counts, retrieval latency/hit counts,
-      and generation token usage per call.
+- [x] **Structured logging & basic observability.** `src/logging_config.py`
+      (`configure_logging()`, opt-in - library code never installs
+      handlers itself) plus `logging.getLogger("rag_multivec.*")` calls in
+      `RAGPipeline.ingest()`/`delete()`/`query()` and `Retriever.retrieve()`
+      logging record/chunk counts, hybrid vs. dense mode, hit counts,
+      citation counts, and latency in ms. Configurable via `LOG_LEVEL`.
 
 ## P2 — scale & interface
 
