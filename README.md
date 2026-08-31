@@ -5,16 +5,19 @@ RAG system supporting multiple vectorization strategies with a normalization mid
 ## Structure
 - `src/vectorizers/` — pluggable dense embedding backends: Voyage AI, OpenAI, local sentence-transformers
 - `src/middleware/` — data normalization pipeline (raw record -> `Document`) before vectorization
-- `src/ingestion/` — chunking of normalized documents
+- `src/ingestion/` — sentence-aware chunking of normalized documents
 - `src/retrieval/` — Chroma vector store, BM25 sparse index, and reciprocal-rank-fusion hybrid retriever
-- `src/generation/` — pluggable answer-generation backends (Anthropic Claude, OpenAI; add more by implementing `BaseGenerator`)
+- `src/generation/` — pluggable answer-generation backends (Anthropic Claude, OpenAI; add more by implementing `BaseGenerator`), with inline `[n]` citations parsed back to source document ids
+- `src/eval/` — retrieval evaluation harness (recall@k, MRR) against a labeled question -> document set
 - `src/config/` — environment-driven settings for every stage
-- `src/pipeline.py` — wires it all together: `ingest()` and `query()`
-- `tests/` — unit tests (chunker, hybrid fusion, BM25, full pipeline with fakes)
+- `src/pipeline.py` — wires it all together: `ingest()`, `delete()`, and `query()`
+- `tests/` — unit tests (chunker, hybrid fusion, BM25, retrieval eval, full pipeline with fakes)
 - `examples/quickstart.py` — minimal end-to-end script
+- `examples/eval_retrieval.py` — minimal retrieval-quality eval script
+- `ROADMAP.md` — prioritized list of what's implemented vs. still missing
 
 ## Design
-Middleware normalizes raw input (schema, encoding, cleaning) into a common `Document` format before it hits any vectorizer, so vectorizers stay swappable. Retrieval defaults to hybrid search: dense Chroma similarity + sparse BM25, combined via reciprocal rank fusion. Generation is provider-agnostic behind `BaseGenerator` — swap Anthropic for OpenAI or your own implementation without touching the rest of the pipeline.
+Middleware normalizes raw input (schema, encoding, cleaning) into a common `Document` format before it hits any vectorizer, so vectorizers stay swappable. Chunking packs whole sentences per chunk (never splitting mid-sentence) with sentence-level overlap between consecutive chunks. Retrieval defaults to hybrid search: dense Chroma similarity + sparse BM25, combined via reciprocal rank fusion. Generation is provider-agnostic behind `BaseGenerator` — swap Anthropic for OpenAI or your own implementation without touching the rest of the pipeline. Re-ingesting a document id replaces its chunks (in both Chroma and the BM25 corpus) instead of duplicating them; `pipeline.delete(document_id)` removes a document entirely.
 
 ## Setup
 
@@ -45,10 +48,13 @@ pipeline.ingest([
 
 result = pipeline.query("What does the document say about X?")
 print(result.answer)
-print(result.sources)  # ScoredDocument list, most relevant first
+print(result.sources)            # ScoredDocument list, most relevant first
+print(result.cited_source_ids)   # subset of source ids the model actually cited
+
+pipeline.delete("doc-1")  # remove a document (and its chunks) from the index
 ```
 
-Or run the bundled example: `python -m examples.quickstart`.
+Or run the bundled examples: `python -m examples.quickstart` and `python -m examples.eval_retrieval`.
 
 ## Tests
 

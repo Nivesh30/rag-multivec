@@ -80,3 +80,53 @@ def test_pipeline_dense_only(tmp_path):
     result = pipeline.query("fox", top_k=1)
 
     assert len(result.sources) == 1
+
+
+def test_pipeline_reingest_replaces_stale_chunks(tmp_path):
+    settings = _settings(tmp_path, use_hybrid=True)
+    pipeline = RAGPipeline(settings, vectorizer=FakeVectorizer(), generator=FakeGenerator())
+
+    pipeline.ingest([{"id": "doc-fox", "text": "The quick fox uses vector search."}])
+    assert pipeline.vector_store.count() == 1
+    assert len(pipeline.bm25_index) == 1
+
+    # Re-ingesting the same id with different text should replace, not duplicate.
+    pipeline.ingest([{"id": "doc-fox", "text": "A completely different sentence about python."}])
+    assert pipeline.vector_store.count() == 1
+    assert len(pipeline.bm25_index) == 1
+
+    result = pipeline.query("python", top_k=1)
+    assert "python" in result.sources[0].document.text.lower()
+
+
+def test_pipeline_delete_removes_document(tmp_path):
+    settings = _settings(tmp_path, use_hybrid=True)
+    pipeline = RAGPipeline(settings, vectorizer=FakeVectorizer(), generator=FakeGenerator())
+
+    pipeline.ingest(
+        [
+            {"id": "doc-fox", "text": "The quick fox uses vector search."},
+            {"id": "doc-dog", "text": "A lazy dog sleeps all day."},
+        ]
+    )
+    assert pipeline.vector_store.count() == 2
+
+    pipeline.delete("doc-fox")
+
+    assert pipeline.vector_store.count() == 1
+    assert len(pipeline.bm25_index) == 1
+    assert "doc-fox" not in pipeline._chunks_by_parent
+
+
+def test_pipeline_query_extracts_citations(tmp_path):
+    class CitingGenerator(BaseGenerator):
+        def generate(self, question, context):
+            return "The fox searches with vectors [1]."
+
+    settings = _settings(tmp_path, use_hybrid=True)
+    pipeline = RAGPipeline(settings, vectorizer=FakeVectorizer(), generator=CitingGenerator())
+
+    pipeline.ingest([{"id": "doc-fox", "text": "The quick fox uses vector search."}])
+    result = pipeline.query("fox", top_k=1)
+
+    assert result.cited_source_ids == [result.sources[0].document.id]

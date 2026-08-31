@@ -23,7 +23,9 @@ class ChromaVectorStore:
             ids=[doc.id for doc in documents],
             embeddings=embeddings,
             documents=[doc.text for doc in documents],
-            metadatas=[doc.metadata or {} for doc in documents],
+            # Chroma rejects an empty metadata dict outright, so document a
+            # placeholder for callers that don't supply any metadata.
+            metadatas=[doc.metadata or {"_no_metadata": True} for doc in documents],
         )
 
     def query(self, query_embedding: List[float], top_k: int = 10) -> List[Tuple[str, float]]:
@@ -43,6 +45,10 @@ class ChromaVectorStore:
         for doc_id, text, metadata in zip(result["ids"], result["documents"], result["metadatas"]):
             documents.append(Document(id=doc_id, text=text, metadata=metadata or {}))
         return documents
+
+    def delete_by_parent_id(self, parent_id: str) -> None:
+        """Remove every chunk previously indexed for a given source document id."""
+        self._collection.delete(where={"parent_id": parent_id})
 
     def count(self) -> int:
         return self._collection.count()

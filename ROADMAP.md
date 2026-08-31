@@ -7,33 +7,36 @@ production-grade. This is the prioritized list of what's missing.
 
 ## P0 — correctness / quality of the core loop
 
-- [ ] **Better chunking.** Current chunker splits on raw word count and can
-      cut sentences mid-thought. Move to sentence- or paragraph-aware
-      splitting (e.g. respect `.`/`\n\n` boundaries, or token-based chunking
-      with a tokenizer instead of `str.split(" ")`).
-- [ ] **Retrieval evaluation harness.** No way to know if hybrid search is
-      actually better than dense-only on real data. Add a small labeled
-      eval set (question -> expected source doc id) and a script that
-      reports recall@k / MRR, so retrieval changes can be measured instead
-      of guessed at.
-- [ ] **Citations in generated answers.** `build_context_block` numbers
-      sources (`[1]`, `[2]`, ...) but the generator prompt doesn't ask
-      Claude to cite them, and answers don't surface which source(s) were
-      actually used. Wire citation markers through to `RAGAnswer`.
-- [ ] **Incremental indexing.** `ingest()` rebuilds the entire BM25 index
-      from all chunks seen so far on every call (`O(n)` per ingest). Fine
-      for a demo, not for repeated small ingests at scale — either persist
-      BM25 like Chroma does, or document the current in-memory limit
-      clearly and cap it.
+- [x] **Better chunking.** `chunk_document` now splits on sentence/paragraph
+      boundaries (`src/ingestion/chunker.py`) and packs whole sentences into
+      each chunk, only word-splitting a sentence that alone exceeds
+      `chunk_size`. Overlap carries trailing sentences forward instead of a
+      raw word slice.
+- [x] **Retrieval evaluation harness.** `src/eval/evaluate.py` runs an
+      `EvalCase` (question -> expected doc/chunk id) list through a
+      `Retriever` and reports recall@k and MRR. See
+      `examples/eval_retrieval.py` and `tests/test_eval.py`.
+- [x] **Citations in generated answers.** `RAG_SYSTEM_PROMPT` now asks the
+      model to cite `[n]` markers it relied on;
+      `extract_cited_source_ids()` parses them back to source document ids,
+      surfaced as `RAGAnswer.cited_source_ids`.
+- [ ] **Incremental indexing.** `ingest()`/`delete()` now rebuild BM25 from
+      a deduplicated corpus (no more unbounded duplicate growth - see
+      "Dedup on ingest" below), but it's still a full `O(n)` rebuild per
+      call rather than a true incremental update. Fine for a demo, not for
+      frequent small ingests at scale — either persist BM25 like Chroma
+      does, or swap to a sparse index that supports incremental updates.
 
 ## P1 — production readiness
 
-- [ ] **Document updates & deletes.** No way to re-ingest a changed
-      document (old chunks would linger) or remove a document's chunks
-      from either the vector store or the BM25 index.
-- [ ] **Dedup on ingest.** Re-ingesting the same raw record twice currently
-      just upserts by id in Chroma but appends duplicate chunks to the
-      in-memory BM25 corpus.
+- [x] **Document updates & deletes.** `RAGPipeline.ingest()` now replaces
+      an existing document's chunks (in both Chroma and the BM25 corpus)
+      when re-ingesting the same id, and `RAGPipeline.delete(document_id)`
+      removes a document's chunks from both entirely
+      (`ChromaVectorStore.delete_by_parent_id`).
+- [x] **Dedup on ingest.** Covered by the same change above —
+      `_chunks_by_parent` tracks chunks per source document id so a
+      re-ingest replaces rather than duplicates them.
 - [ ] **Error handling around LLM/embedding calls.** No retry/backoff or
       typed-exception handling around the Anthropic/OpenAI/Voyage calls in
       `src/vectorizers/` and `src/generation/` — a transient 429/5xx today

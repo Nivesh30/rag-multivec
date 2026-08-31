@@ -1,8 +1,8 @@
-from dataclasses import dataclass
-from typing import List
+from dataclasses import dataclass, field
+from typing import Dict, List, Optional
 
 from src.config.settings import Settings, load_settings
-from src.generation.base import BaseGenerator
+from src.generation.base import BaseGenerator, extract_cited_source_ids
 from src.generation.factory import build_generator
 from src.ingestion.chunker import chunk_documents
 from src.middleware.normalizer import Document, Normalizer, PlainTextNormalizer
@@ -18,6 +18,7 @@ class RAGAnswer:
     question: str
     answer: str
     sources: List[ScoredDocument]
+    cited_source_ids: List[str] = field(default_factory=list)
 
 
 class RAGPipeline:
@@ -47,33 +48,59 @@ class RAGPipeline:
             use_hybrid=settings.retrieval.use_hybrid,
             rrf_k=settings.retrieval.rrf_k,
         )
-        self._all_chunks: List[Document] = []
+        # Chunks currently indexed, keyed by source document id - lets us
+        # replace a document's chunks in place on re-ingest instead of
+        # accumulating stale duplicates in the BM25 corpus.
+        self._chunks_by_parent: Dict[str, List[Document]] = {}
 
     def ingest(self, raw_records: List[dict]) -> List[Document]:
-        """Normalize raw records, chunk them, embed the chunks, and index them."""
+        """Normalize raw records, chunk them, embed the chunks, and index them.
+
+        Re-ingesting a record with an id already seen replaces its chunks
+        (in both the vector store and the BM25 corpus) rather than
+        duplicating them.
+        """
         documents = [self.normalizer.normalize(raw) for raw in raw_records]
         chunks = chunk_documents(
             documents,
             chunk_size=self.settings.chunking.chunk_size,
             chunk_overlap=self.settings.chunking.chunk_overlap,
         )
-        if not chunks:
-            return []
 
-        embeddings = self.vectorizer.embed([chunk.text for chunk in chunks])
-        self.vector_store.add_documents(chunks, embeddings)
+        for doc in documents:
+            if doc.id in self._chunks_by_parent:
+                self.vector_store.delete_by_parent_id(doc.id)
+                del self._chunks_by_parent[doc.id]
 
-        self._all_chunks.extend(chunks)
+        if chunks:
+            embeddings = self.vectorizer.embed([chunk.text for chunk in chunks])
+            self.vector_store.add_documents(chunks, embeddings)
+            for doc in documents:
+                self._chunks_by_parent[doc.id] = [c for c in chunks if c.metadata.get("parent_id") == doc.id]
+
         if self.bm25_index is not None:
-            self.bm25_index.build(self._all_chunks)
+            self.bm25_index.build(self._all_chunks())
 
         return chunks
 
-    def query(self, question: str, top_k: int = None) -> RAGAnswer:
+    def delete(self, document_id: str) -> None:
+        """Remove a previously ingested document's chunks from the index entirely."""
+        if document_id not in self._chunks_by_parent:
+            return
+        self.vector_store.delete_by_parent_id(document_id)
+        del self._chunks_by_parent[document_id]
+        if self.bm25_index is not None:
+            self.bm25_index.build(self._all_chunks())
+
+    def _all_chunks(self) -> List[Document]:
+        return [chunk for chunks in self._chunks_by_parent.values() for chunk in chunks]
+
+    def query(self, question: str, top_k: Optional[int] = None) -> RAGAnswer:
         top_k = top_k or self.settings.retrieval.top_k
         sources = self.retriever.retrieve(question, top_k=top_k)
         answer = self.generator.generate(question, sources)
-        return RAGAnswer(question=question, answer=answer, sources=sources)
+        cited_source_ids = extract_cited_source_ids(answer, sources)
+        return RAGAnswer(question=question, answer=answer, sources=sources, cited_source_ids=cited_source_ids)
 
 
 def build_pipeline(settings: Settings = None) -> RAGPipeline:
