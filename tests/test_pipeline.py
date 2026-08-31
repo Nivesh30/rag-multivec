@@ -20,7 +20,11 @@ class FakeVectorizer(BaseVectorizer):
 
     _VOCAB = ["fox", "vector", "database", "dog", "python", "search"]
 
+    def __init__(self):
+        self.embed_call_sizes: List[int] = []
+
     def embed(self, texts: List[str]) -> List[List[float]]:
+        self.embed_call_sizes.append(len(texts))
         vectors = []
         for text in texts:
             lowered = text.lower()
@@ -38,9 +42,9 @@ class FakeGenerator(BaseGenerator):
         return f"Answer to '{question}' using: {joined}"
 
 
-def _settings(tmp_path, use_hybrid: bool) -> Settings:
+def _settings(tmp_path, use_hybrid: bool, batch_size: int = 100) -> Settings:
     return Settings(
-        vectorizer=VectorizerConfig(backend="sentence_transformers"),
+        vectorizer=VectorizerConfig(backend="sentence_transformers", batch_size=batch_size),
         vector_store=VectorStoreConfig(
             backend="chroma",
             collection_name=f"test-{hashlib.md5(str(tmp_path).encode()).hexdigest()[:8]}",
@@ -130,6 +134,30 @@ def test_pipeline_logs_ingest_and_query(tmp_path, caplog):
     assert any("ingest(" in m for m in messages)
     assert any("retrieve(" in m for m in messages)
     assert any("query() ->" in m for m in messages)
+
+
+def test_pipeline_ingest_batches_embedding_calls(tmp_path):
+    settings = _settings(tmp_path, use_hybrid=False, batch_size=2)
+    vectorizer = FakeVectorizer()
+    pipeline = RAGPipeline(settings, vectorizer=vectorizer, generator=FakeGenerator())
+
+    # 5 single-sentence records -> 5 chunks, batched at size 2 -> [2, 2, 1].
+    records = [{"id": f"doc-{i}", "text": f"Sentence number {i} about foxes."} for i in range(5)]
+    chunks = pipeline.ingest(records)
+
+    assert len(chunks) == 5
+    assert vectorizer.embed_call_sizes == [2, 2, 1]
+    assert pipeline.vector_store.count() == 5
+
+
+def test_pipeline_ingest_single_call_when_under_batch_size(tmp_path):
+    settings = _settings(tmp_path, use_hybrid=False, batch_size=100)
+    vectorizer = FakeVectorizer()
+    pipeline = RAGPipeline(settings, vectorizer=vectorizer, generator=FakeGenerator())
+
+    pipeline.ingest([{"id": "doc-fox", "text": "The quick fox uses vector search."}])
+
+    assert vectorizer.embed_call_sizes == [1]
 
 
 def test_pipeline_query_stream_default_fallback(tmp_path):

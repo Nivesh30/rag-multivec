@@ -76,9 +76,13 @@ production-grade. This is the prioritized list of what's missing.
 
 ## P2 — scale & interface
 
-- [ ] **Batch embedding for large ingests.** `embed()` is called with the
-      full chunk list in one shot; add batching/backpressure for large
-      document sets to avoid provider request-size limits.
+- [x] **Batch embedding for large ingests.** `RAGPipeline._embed_all()`
+      splits the chunk list into batches of `VECTORIZER_BATCH_SIZE`
+      (default 100) and calls `vectorizer.embed()` per batch, logging
+      progress; a single batch is used as before for a small ingest. A
+      failure partway through raises (via the typed `EmbeddingError` from
+      the P1 error-handling work) before anything from that `ingest()`
+      call is added to the vector store.
 - [ ] **A real document loader layer.** `src/ingestion/` currently only
       has the chunker; add loaders for common formats (PDF, HTML, Markdown,
       CSV) feeding into `PlainTextNormalizer`/custom `Normalizer`s.

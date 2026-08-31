@@ -18,6 +18,11 @@ from src.vectorizers.factory import build_vectorizer
 logger = logging.getLogger("rag_multivec.pipeline")
 
 
+def _batched(items: List, batch_size: int) -> Iterator[List]:
+    for start in range(0, len(items), batch_size):
+        yield items[start : start + batch_size]
+
+
 @dataclass
 class RAGAnswer:
     question: str
@@ -122,7 +127,7 @@ class RAGPipeline:
             del self._chunks_by_parent[doc_id]
 
         if chunks:
-            embeddings = self.vectorizer.embed([chunk.text for chunk in chunks])
+            embeddings = self._embed_all([chunk.text for chunk in chunks])
             self.vector_store.add_documents(chunks, embeddings)
             for doc in documents:
                 self._chunks_by_parent[doc.id] = [c for c in chunks if c.metadata.get("parent_id") == doc.id]
@@ -148,6 +153,22 @@ class RAGPipeline:
         del self._chunks_by_parent[document_id]
         self._rebuild_bm25()
         logger.info("delete(%s): removed from index", document_id)
+
+    def _embed_all(self, texts: List[str]) -> List[List[float]]:
+        """Embed `texts` in batches of settings.vectorizer.batch_size rather than
+        one call, so a large ingest doesn't hit a provider's per-request size/
+        rate limits. If any batch fails, the exception propagates and nothing
+        from this ingest() call is added to the vector store."""
+        batch_size = max(1, self.settings.vectorizer.batch_size)
+        if len(texts) <= batch_size:
+            return self.vectorizer.embed(texts)
+
+        embeddings: List[List[float]] = []
+        batches = list(_batched(texts, batch_size))
+        for i, batch in enumerate(batches, start=1):
+            logger.info("embedding batch %d/%d (%d chunk(s))", i, len(batches), len(batch))
+            embeddings.extend(self.vectorizer.embed(batch))
+        return embeddings
 
     def _all_chunks(self) -> List[Document]:
         return [chunk for chunks in self._chunks_by_parent.values() for chunk in chunks]
