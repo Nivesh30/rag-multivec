@@ -50,9 +50,15 @@ production-grade. This is the prioritized list of what's missing.
       expose a documented typed hierarchy, so it uses a duck-typed
       transient check (`is_transient_by_signature`) for logging purposes
       and always raises `EmbeddingError`.
-- [ ] **Streaming generation.** `AnthropicGenerator`/`OpenAIGenerator` use
-      non-streaming calls; fine for short answers, but there's no path to
-      stream tokens back to a caller (e.g. a future API/UI layer).
+- [x] **Streaming generation.** `BaseGenerator.stream()` (default: yields
+      `generate()`'s result as one chunk, so existing/custom generators
+      keep working unmodified) is overridden in `AnthropicGenerator`
+      (`client.messages.stream`) and `OpenAIGenerator` (`stream=True`) with
+      the same typed exception handling as `generate()`.
+      `RAGPipeline.query_stream()` runs retrieval eagerly (sources are
+      known immediately) and returns a `StreamingRAGAnswer` you iterate
+      for text chunks; `.answer`/`.cited_source_ids` reflect what's been
+      consumed so far. See `examples/streaming_query.py`.
 - [x] **Persistent BM25.** `BM25Index.save()`/`load()` serialize the
       document corpus as JSON (rank_bm25 has no native serialization, so
       the index is cheaply rebuilt from the saved corpus on load) to

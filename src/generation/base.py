@@ -1,6 +1,6 @@
 import re
 from abc import ABC, abstractmethod
-from typing import List
+from typing import Iterator, List
 
 from src.retrieval.retriever import ScoredDocument
 
@@ -46,3 +46,13 @@ class BaseGenerator(ABC):
     @abstractmethod
     def generate(self, question: str, context: List[ScoredDocument]) -> str:
         ...
+
+    def stream(self, question: str, context: List[ScoredDocument]) -> Iterator[str]:
+        """Stream the answer as it's generated, one text chunk at a time.
+
+        Default fallback: call generate() and yield its result as a single
+        chunk. Providers that support real token streaming (Anthropic,
+        OpenAI) override this; a custom BaseGenerator only needs to
+        implement generate() to remain a valid, if non-streaming, backend.
+        """
+        yield self.generate(question, context)

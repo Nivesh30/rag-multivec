@@ -1,5 +1,5 @@
 import logging
-from typing import List, Optional
+from typing import Iterator, List, Optional
 
 from src.errors import GenerationError
 from src.generation.base import RAG_SYSTEM_PROMPT, BaseGenerator, build_context_block
@@ -15,9 +15,9 @@ class AnthropicGenerator(BaseGenerator):
 
     The Anthropic SDK already retries connection errors, 429, and 5xx with
     exponential backoff (`max_retries`, configurable here via
-    GENERATION_MAX_RETRIES). This wraps the call so a failure that survives
-    those retries surfaces as a clear GenerationError instead of a raw SDK
-    exception leaking out of the pipeline.
+    GENERATION_MAX_RETRIES). Calls wrap the SDK exceptions so a failure that
+    survives those retries surfaces as a clear GenerationError instead of a
+    raw SDK exception leaking out of the pipeline.
     """
 
     def __init__(
@@ -36,18 +36,19 @@ class AnthropicGenerator(BaseGenerator):
             kwargs["api_key"] = api_key
         self._client = anthropic.Anthropic(**kwargs)
 
+    def _user_message(self, question: str, context: List[ScoredDocument]) -> str:
+        context_block = build_context_block(context)
+        return f"Context:\n{context_block}\n\nQuestion: {question}"
+
     def generate(self, question: str, context: List[ScoredDocument]) -> str:
         import anthropic
-
-        context_block = build_context_block(context)
-        user_message = f"Context:\n{context_block}\n\nQuestion: {question}"
 
         try:
             response = self._client.messages.create(
                 model=self.model,
                 max_tokens=self.max_tokens,
                 system=RAG_SYSTEM_PROMPT,
-                messages=[{"role": "user", "content": user_message}],
+                messages=[{"role": "user", "content": self._user_message(question, context)}],
             )
         except anthropic.AuthenticationError as exc:
             raise GenerationError("anthropic", "invalid API key", cause=exc) from exc
@@ -66,3 +67,32 @@ class AnthropicGenerator(BaseGenerator):
             raise GenerationError("anthropic", "model declined to answer (refusal)")
 
         return "".join(block.text for block in response.content if block.type == "text")
+
+    def stream(self, question: str, context: List[ScoredDocument]) -> Iterator[str]:
+        import anthropic
+
+        try:
+            with self._client.messages.stream(
+                model=self.model,
+                max_tokens=self.max_tokens,
+                system=RAG_SYSTEM_PROMPT,
+                messages=[{"role": "user", "content": self._user_message(question, context)}],
+            ) as stream:
+                for text in stream.text_stream:
+                    yield text
+                final_message = stream.get_final_message()
+        except anthropic.AuthenticationError as exc:
+            raise GenerationError("anthropic", "invalid API key", cause=exc) from exc
+        except anthropic.RateLimitError as exc:
+            logger.error("Anthropic rate limit exhausted retries mid-stream: %s", exc)
+            raise GenerationError("anthropic", "rate limited after retries", cause=exc) from exc
+        except anthropic.APIConnectionError as exc:
+            logger.error("Anthropic connection lost mid-stream: %s", exc)
+            raise GenerationError("anthropic", "connection failed after retries", cause=exc) from exc
+        except anthropic.APIStatusError as exc:
+            logger.error("Anthropic API error mid-stream (status %s): %s", exc.status_code, exc)
+            raise GenerationError("anthropic", f"API error (status {exc.status_code})", cause=exc) from exc
+
+        if final_message.stop_reason == "refusal":
+            logger.warning("Anthropic refused to answer: %s", getattr(final_message, "stop_details", None))
+            raise GenerationError("anthropic", "model declined to answer (refusal)")
