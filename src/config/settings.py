@@ -14,6 +14,7 @@ class VectorizerConfig:
     voyage_api_key: Optional[str] = field(default_factory=lambda: _env("VOYAGE_API_KEY"))
     openai_api_key: Optional[str] = field(default_factory=lambda: _env("OPENAI_API_KEY"))
     max_retries: int = field(default_factory=lambda: int(_env("VECTORIZER_MAX_RETRIES", "2")))
+    batch_size: int = field(default_factory=lambda: int(_env("VECTORIZER_BATCH_SIZE", "100")))
 
 
 @dataclass

@@ -65,7 +65,7 @@ print(streaming_answer.cited_source_ids)  # available after the loop consumes th
 
 Or run the bundled examples: `python -m examples.quickstart`, `python -m examples.eval_retrieval`, and `python -m examples.streaming_query`.
 
-The Anthropic/OpenAI SDKs already retry transient (429/5xx/connection) failures internally — tune how many via `GENERATION_MAX_RETRIES`/`VECTORIZER_MAX_RETRIES`. A failure that survives those retries raises `src.errors.GenerationError`/`EmbeddingError` rather than a raw SDK exception. Call `src.logging_config.configure_logging()` once at startup (as the examples do) to see per-call counts and latency; control verbosity with `LOG_LEVEL`.
+The Anthropic/OpenAI SDKs already retry transient (429/5xx/connection) failures internally — tune how many via `GENERATION_MAX_RETRIES`/`VECTORIZER_MAX_RETRIES`. A failure that survives those retries raises `src.errors.GenerationError`/`EmbeddingError` rather than a raw SDK exception. Call `src.logging_config.configure_logging()` once at startup (as the examples do) to see per-call counts and latency; control verbosity with `LOG_LEVEL`. Large ingests are embedded in batches of `VECTORIZER_BATCH_SIZE` (default 100) rather than one request, to stay under provider request-size limits.
 
 ## Tests
 
