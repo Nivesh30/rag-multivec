@@ -5,7 +5,7 @@ RAG system supporting multiple vectorization strategies with a normalization mid
 ## Structure
 - `src/vectorizers/` — pluggable dense embedding backends: Voyage AI, OpenAI, local sentence-transformers
 - `src/middleware/` — data normalization pipeline (raw record -> `Document`) before vectorization
-- `src/ingestion/` — sentence-aware chunking of normalized documents
+- `src/ingestion/` — sentence-aware chunking, plus file loaders (`.txt`/`.md`/`.html`/`.pdf`/`.csv`, and a `load_directory()` walker) that produce raw records ready for `ingest()`
 - `src/retrieval/` — Chroma vector store, BM25 sparse index, and reciprocal-rank-fusion hybrid retriever
 - `src/generation/` — pluggable answer-generation backends (Anthropic Claude, OpenAI; add more by implementing `BaseGenerator`), with inline `[n]` citations parsed back to source document ids
 - `src/eval/` — retrieval evaluation harness (recall@k, MRR) against a labeled question -> document set
@@ -17,6 +17,7 @@ RAG system supporting multiple vectorization strategies with a normalization mid
 - `examples/quickstart.py` — minimal end-to-end script
 - `examples/eval_retrieval.py` — minimal retrieval-quality eval script
 - `examples/streaming_query.py` — stream an answer token-by-token instead of waiting for the full response
+- `examples/ingest_directory.py` — ingest every supported file under a directory
 - `ROADMAP.md` — prioritized list of what's implemented vs. still missing
 
 ## Design
@@ -63,7 +64,16 @@ for chunk in streaming_answer:
 print(streaming_answer.cited_source_ids)  # available after the loop consumes the stream
 ```
 
-Or run the bundled examples: `python -m examples.quickstart`, `python -m examples.eval_retrieval`, and `python -m examples.streaming_query`.
+Or load documents from disk instead of hand-writing raw records:
+
+```python
+from src.ingestion.loaders import load_directory, load_csv_file
+
+pipeline.ingest(load_directory("./docs"))                                  # .txt/.md/.html/.pdf
+pipeline.ingest(load_csv_file("./faq.csv", text_column="answer", id_column="id"))
+```
+
+Or run the bundled examples: `python -m examples.quickstart`, `python -m examples.eval_retrieval`, `python -m examples.streaming_query`, and `python -m examples.ingest_directory <dir>`.
 
 The Anthropic/OpenAI SDKs already retry transient (429/5xx/connection) failures internally — tune how many via `GENERATION_MAX_RETRIES`/`VECTORIZER_MAX_RETRIES`. A failure that survives those retries raises `src.errors.GenerationError`/`EmbeddingError` rather than a raw SDK exception. Call `src.logging_config.configure_logging()` once at startup (as the examples do) to see per-call counts and latency; control verbosity with `LOG_LEVEL`. Large ingests are embedded in batches of `VECTORIZER_BATCH_SIZE` (default 100) rather than one request, to stay under provider request-size limits.
 
