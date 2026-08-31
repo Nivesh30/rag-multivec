@@ -132,6 +132,43 @@ def test_pipeline_logs_ingest_and_query(tmp_path, caplog):
     assert any("query() ->" in m for m in messages)
 
 
+def test_pipeline_query_stream_default_fallback(tmp_path):
+    settings = _settings(tmp_path, use_hybrid=True)
+    pipeline = RAGPipeline(settings, vectorizer=FakeVectorizer(), generator=FakeGenerator())
+
+    pipeline.ingest([{"id": "doc-fox", "text": "The quick fox uses vector search."}])
+    streaming_answer = pipeline.query_stream("fox", top_k=1)
+
+    # sources are available before any generation/streaming happens
+    assert len(streaming_answer.sources) == 1
+    assert streaming_answer.answer == ""  # nothing consumed yet
+
+    chunks = list(streaming_answer)
+    assert "".join(chunks) == streaming_answer.answer
+    assert streaming_answer.answer.startswith("Answer to")
+
+
+def test_pipeline_query_stream_true_streaming_and_citations(tmp_path):
+    class StreamingCitingGenerator(BaseGenerator):
+        def generate(self, question, context):
+            return "".join(self.stream(question, context))
+
+        def stream(self, question, context):
+            for piece in ["The fox ", "searches with ", "vectors [1]."]:
+                yield piece
+
+    settings = _settings(tmp_path, use_hybrid=True)
+    pipeline = RAGPipeline(settings, vectorizer=FakeVectorizer(), generator=StreamingCitingGenerator())
+
+    pipeline.ingest([{"id": "doc-fox", "text": "The quick fox uses vector search."}])
+    streaming_answer = pipeline.query_stream("fox", top_k=1)
+
+    chunks = list(streaming_answer)
+    assert chunks == ["The fox ", "searches with ", "vectors [1]."]
+    assert streaming_answer.answer == "The fox searches with vectors [1]."
+    assert streaming_answer.cited_source_ids == [streaming_answer.sources[0].document.id]
+
+
 def test_pipeline_query_extracts_citations(tmp_path):
     class CitingGenerator(BaseGenerator):
         def generate(self, question, context):

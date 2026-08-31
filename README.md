@@ -16,6 +16,7 @@ RAG system supporting multiple vectorization strategies with a normalization mid
 - `tests/` — unit tests (chunker, hybrid fusion, BM25, retrieval eval, full pipeline with fakes)
 - `examples/quickstart.py` — minimal end-to-end script
 - `examples/eval_retrieval.py` — minimal retrieval-quality eval script
+- `examples/streaming_query.py` — stream an answer token-by-token instead of waiting for the full response
 - `ROADMAP.md` — prioritized list of what's implemented vs. still missing
 
 ## Design
@@ -54,9 +55,15 @@ print(result.sources)            # ScoredDocument list, most relevant first
 print(result.cited_source_ids)   # subset of source ids the model actually cited
 
 pipeline.delete("doc-1")  # remove a document (and its chunks) from the index
+
+# Stream the answer instead of waiting for the full response:
+streaming_answer = pipeline.query_stream("What does the document say about X?")
+for chunk in streaming_answer:
+    print(chunk, end="", flush=True)
+print(streaming_answer.cited_source_ids)  # available after the loop consumes the stream
 ```
 
-Or run the bundled examples: `python -m examples.quickstart` and `python -m examples.eval_retrieval`.
+Or run the bundled examples: `python -m examples.quickstart`, `python -m examples.eval_retrieval`, and `python -m examples.streaming_query`.
 
 The Anthropic/OpenAI SDKs already retry transient (429/5xx/connection) failures internally — tune how many via `GENERATION_MAX_RETRIES`/`VECTORIZER_MAX_RETRIES`. A failure that survives those retries raises `src.errors.GenerationError`/`EmbeddingError` rather than a raw SDK exception. Call `src.logging_config.configure_logging()` once at startup (as the examples do) to see per-call counts and latency; control verbosity with `LOG_LEVEL`.
 

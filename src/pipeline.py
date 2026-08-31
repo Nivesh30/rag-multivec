@@ -2,7 +2,7 @@ import logging
 import os
 import time
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional
+from typing import Dict, Iterator, List, Optional
 
 from src.config.settings import Settings, load_settings
 from src.generation.base import BaseGenerator, extract_cited_source_ids
@@ -24,6 +24,38 @@ class RAGAnswer:
     answer: str
     sources: List[ScoredDocument]
     cited_source_ids: List[str] = field(default_factory=list)
+
+
+@dataclass
+class StreamingRAGAnswer:
+    """Result of RAGPipeline.query_stream().
+
+    `sources` are available immediately (retrieval runs synchronously
+    before generation starts). Iterate the answer itself - `for chunk in
+    streaming_answer:` - to consume the generated text as it arrives;
+    `.answer` and `.cited_source_ids` only reflect what's been streamed so
+    far, so read them after fully consuming the iterator for the final
+    values (a generator raising mid-stream, e.g. GenerationError, still
+    leaves whatever was yielded so far in `.answer`).
+    """
+
+    question: str
+    sources: List[ScoredDocument]
+    _token_iter: Iterator[str]
+    _parts: List[str] = field(default_factory=list, repr=False)
+
+    def __iter__(self) -> Iterator[str]:
+        for chunk in self._token_iter:
+            self._parts.append(chunk)
+            yield chunk
+
+    @property
+    def answer(self) -> str:
+        return "".join(self._parts)
+
+    @property
+    def cited_source_ids(self) -> List[str]:
+        return extract_cited_source_ids(self.answer, self.sources)
 
 
 class RAGPipeline:
@@ -141,6 +173,16 @@ class RAGPipeline:
             elapsed_ms,
         )
         return RAGAnswer(question=question, answer=answer, sources=sources, cited_source_ids=cited_source_ids)
+
+    def query_stream(self, question: str, top_k: Optional[int] = None) -> StreamingRAGAnswer:
+        """Like query(), but the answer streams token-by-token instead of
+        being generated in one blocking call. Retrieval still runs eagerly
+        (sources are known before any generation starts); see
+        StreamingRAGAnswer for how to consume the streamed text."""
+        top_k = top_k or self.settings.retrieval.top_k
+        sources = self.retriever.retrieve(question, top_k=top_k)
+        logger.info("query_stream() -> %d source(s), generation starting", len(sources))
+        return StreamingRAGAnswer(question=question, sources=sources, _token_iter=self.generator.stream(question, sources))
 
 
 def build_pipeline(settings: Settings = None) -> RAGPipeline:
