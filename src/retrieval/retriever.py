@@ -1,3 +1,5 @@
+import logging
+import time
 from dataclasses import dataclass
 from typing import List, Optional
 
@@ -6,6 +8,8 @@ from src.retrieval.bm25_index import BM25Index
 from src.retrieval.hybrid import reciprocal_rank_fusion
 from src.retrieval.vector_store import ChromaVectorStore
 from src.vectorizers.base import BaseVectorizer
+
+logger = logging.getLogger("rag_multivec.retrieval")
 
 
 @dataclass
@@ -32,6 +36,19 @@ class Retriever:
         self._rrf_k = rrf_k
 
     def retrieve(self, query: str, top_k: int = 5) -> List[ScoredDocument]:
+        started = time.monotonic()
+        results = self._retrieve(query, top_k)
+        elapsed_ms = (time.monotonic() - started) * 1000
+        logger.info(
+            "retrieve(%s, top_k=%d) -> %d hit(s) in %.1fms",
+            "hybrid" if self._use_hybrid else "dense",
+            top_k,
+            len(results),
+            elapsed_ms,
+        )
+        return results
+
+    def _retrieve(self, query: str, top_k: int) -> List[ScoredDocument]:
         fetch_k = max(top_k * 4, top_k)
         query_embedding = self._vectorizer.embed([query])[0]
         dense_hits = self._vector_store.query(query_embedding, top_k=fetch_k)

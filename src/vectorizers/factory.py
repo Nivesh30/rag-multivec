@@ -19,7 +19,11 @@ def build_vectorizer(config: "VectorizerConfig") -> BaseVectorizer:
     if backend == "openai":
         from src.vectorizers.openai_vectorizer import DEFAULT_MODEL, OpenAIVectorizer
 
-        return OpenAIVectorizer(api_key=config.openai_api_key, model=config.model or DEFAULT_MODEL)
+        return OpenAIVectorizer(
+            api_key=config.openai_api_key,
+            model=config.model or DEFAULT_MODEL,
+            max_retries=config.max_retries,
+        )
 
     if backend == "sentence_transformers":
         from src.vectorizers.sentence_transformer_vectorizer import SentenceTransformerVectorizer
